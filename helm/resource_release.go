@@ -26,6 +26,7 @@ import (
 	"helm.sh/helm/v3/pkg/postrender"
 	"helm.sh/helm/v3/pkg/registry"
 	"helm.sh/helm/v3/pkg/release"
+	"helm.sh/helm/v3/pkg/storage/driver"
 	"helm.sh/helm/v3/pkg/strvals"
 	"sigs.k8s.io/yaml"
 )
@@ -56,6 +57,10 @@ var defaultAttributes = map[string]interface{}{
 	"create_namespace":           false,
 	"lint":                       false,
 	"pass_credentials":           false,
+	"upgrade": map[string]bool{
+		"enable":  false,
+		"install": false,
+	},
 }
 
 func resourceRelease() *schema.Resource {
@@ -429,6 +434,15 @@ func resourceRelease() *schema.Resource {
 					},
 				},
 			},
+			"upgrade": {
+				Type:        schema.TypeMap,
+				Optional:    true,
+				Default:     defaultAttributes["upgrade"],
+				Description: "Configure 'upgrade' strategy for installing charts.  WARNING: this may not be suitable for production use -- see the provider documentation",
+				Elem: &schema.Schema{
+					Type: schema.TypeBool,
+				},
+			},
 		},
 		SchemaVersion: 1,
 		StateUpgraders: []schema.StateUpgrader{
@@ -588,50 +602,98 @@ func resourceReleaseCreate(ctx context.Context, d *schema.ResourceData, meta int
 		return diag.FromErr(err)
 	}
 
-	client.ClientOnly = false
-	client.DryRun = false
-	client.DisableHooks = d.Get("disable_webhooks").(bool)
-	client.Wait = d.Get("wait").(bool)
-	client.WaitForJobs = d.Get("wait_for_jobs").(bool)
-	client.Devel = d.Get("devel").(bool)
-	client.DependencyUpdate = d.Get("dependency_update").(bool)
-	client.Timeout = time.Duration(d.Get("timeout").(int)) * time.Second
-	client.Namespace = d.Get("namespace").(string)
-	client.ReleaseName = d.Get("name").(string)
-	client.GenerateName = false
-	client.NameTemplate = ""
-	client.OutputDir = ""
-	client.Atomic = d.Get("atomic").(bool)
-	client.SkipCRDs = d.Get("skip_crds").(bool)
-	client.SubNotes = d.Get("render_subchart_notes").(bool)
-	client.DisableOpenAPIValidation = d.Get("disable_openapi_validation").(bool)
-	client.Replace = d.Get("replace").(bool)
-	client.Description = d.Get("description").(string)
-	client.CreateNamespace = d.Get("create_namespace").(bool)
+	var rel *release.Release
+	var installIfNoReleaseToUpgrade bool
+	var releaseAlreadyExists bool
 
-	if cmd := d.Get("postrender.0.binary_path").(string); cmd != "" {
-		av := d.Get("postrender.0.args")
-		var args []string
-		for _, arg := range av.([]interface{}) {
-			if arg == nil {
-				continue
-			}
-			args = append(args, arg.(string))
-		}
+	releaseName := d.Get("name").(string)
+	upgradeStrategy := d.Get("upgrade").(map[string]interface{})
+	enableUpgradeStrategy, ok := upgradeStrategy["enable"].(bool)
 
-		pr, err := postrender.NewExec(cmd, args...)
-
-		if err != nil {
-			return diag.FromErr(err)
-		}
-
-		client.PostRenderer = pr
+	if ok && enableUpgradeStrategy {
+		installIfNoReleaseToUpgrade, _ = upgradeStrategy["install"].(bool)
 	}
 
-	debug("%s Installing chart", logID)
+	if enableUpgradeStrategy {
+		// Check to see if there is already a release installed.
+		histClient := action.NewHistory(actionConfig)
+		histClient.Max = 1
+		if _, err := histClient.Run(releaseName); err == driver.ErrReleaseNotFound {
+			debug("%s Chart %s is not yet installed", logID, chartName)
+		} else if err != nil {
+			return diag.FromErr(err)
+		} else {
+			releaseAlreadyExists = true
+			debug("%s Chart %s is installed as release %s", logID, chartName, releaseName)
+		}
+	}
 
-	rel, err := client.Run(c, values)
+	if enableUpgradeStrategy && releaseAlreadyExists {
+		debug("%s Upgrading chart", logID)
 
+		upgradeClient := action.NewUpgrade(actionConfig)
+		upgradeClient.ChartPathOptions = *cpo
+		upgradeClient.DryRun = false
+		upgradeClient.DisableHooks = d.Get("disable_webhooks").(bool)
+		upgradeClient.Wait = d.Get("wait").(bool)
+		upgradeClient.Devel = d.Get("devel").(bool)
+		upgradeClient.Timeout = time.Duration(d.Get("timeout").(int)) * time.Second
+		upgradeClient.Namespace = d.Get("namespace").(string)
+		upgradeClient.Atomic = d.Get("atomic").(bool)
+		upgradeClient.SkipCRDs = d.Get("skip_crds").(bool)
+		upgradeClient.SubNotes = d.Get("render_subchart_notes").(bool)
+		upgradeClient.DisableOpenAPIValidation = d.Get("disable_openapi_validation").(bool)
+		upgradeClient.Description = d.Get("description").(string)
+
+		if cmd := d.Get("postrender.0.binary_path").(string); cmd != "" {
+			pr, err := postrender.NewExec(cmd)
+			if err != nil {
+				return diag.FromErr(err)
+			}
+			upgradeClient.PostRenderer = pr
+		}
+
+		debug("%s Upgrading chart", logID)
+		rel, err = upgradeClient.Run(releaseName, c, values)
+	} else if (enableUpgradeStrategy && installIfNoReleaseToUpgrade && !releaseAlreadyExists) || !enableUpgradeStrategy {
+		instClient := action.NewInstall(actionConfig)
+		instClient.Replace = d.Get("replace").(bool)
+
+		instClient.ChartPathOptions = *cpo
+		instClient.ClientOnly = false
+		instClient.DryRun = false
+		instClient.DisableHooks = d.Get("disable_webhooks").(bool)
+		instClient.Wait = d.Get("wait").(bool)
+		instClient.Devel = d.Get("devel").(bool)
+		instClient.DependencyUpdate = d.Get("dependency_update").(bool)
+		instClient.Timeout = time.Duration(d.Get("timeout").(int)) * time.Second
+		instClient.Namespace = d.Get("namespace").(string)
+		instClient.ReleaseName = d.Get("name").(string)
+		instClient.GenerateName = false
+		instClient.NameTemplate = ""
+		instClient.OutputDir = ""
+		instClient.Atomic = d.Get("atomic").(bool)
+		instClient.SkipCRDs = d.Get("skip_crds").(bool)
+		instClient.SubNotes = d.Get("render_subchart_notes").(bool)
+		instClient.DisableOpenAPIValidation = d.Get("disable_openapi_validation").(bool)
+		instClient.Description = d.Get("description").(string)
+		instClient.CreateNamespace = d.Get("create_namespace").(bool)
+
+		if cmd := d.Get("postrender.0.binary_path").(string); cmd != "" {
+			pr, err := postrender.NewExec(cmd)
+			if err != nil {
+				return diag.FromErr(err)
+			}
+			instClient.PostRenderer = pr
+		}
+
+		debug("%s Installing chart", logID)
+		rel, err = instClient.Run(c, values)
+	} else if enableUpgradeStrategy && !installIfNoReleaseToUpgrade && !releaseAlreadyExists {
+		return diag.FromErr(fmt.Errorf(
+			"upgrade strategy enabled, but chart not already installed and install=false chartName=%v releaseName=%v enableUpgradeStrategy=%t installIfNoReleaseToUpgrade=%t releaseAlreadyExists=%t",
+			chartName, releaseName, enableUpgradeStrategy, installIfNoReleaseToUpgrade, releaseAlreadyExists))
+	}
 	if err != nil && rel == nil {
 		return diag.FromErr(err)
 	}
