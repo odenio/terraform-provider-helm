@@ -390,6 +390,29 @@ func resourceRelease() *schema.Resource {
 				Description: "The rendered manifest as JSON.",
 				Computed:    true,
 			},
+			"upgrade": {
+				Type:        schema.TypeList,
+				Optional:    true,
+				MaxItems:    1,
+				Default:     defaultAttributes["upgrade"],
+				Description: "Configure 'upgrade' strategy for installing charts.  WARNING: this may not be suitable for production use -- see the provider documentation,",
+				Elem: &schema.Resource{
+					Schema: map[string]*schema.Schema{
+						"enable": {
+							Type:        schema.TypeBool,
+							Required:    true,
+							Default:     false,
+							Description: "If true, the provider will install the release at the specified version even if a release not controlled by the provider is present: this is equivalent to using the 'helm upgrade' CLI tool rather than 'helm install'.",
+						},
+						"install": {
+							Type:        schema.TypeBool,
+							Required:    false,
+							Default:     false,
+							Description: "When using the 'upgrade' strategy, install the release if it is not already present. This is equivalent to using the 'helm upgrade' CLI tool with the '--install' flag.",
+						},
+					},
+				},
+			},
 			"metadata": {
 				Type:        schema.TypeList,
 				Computed:    true,
@@ -432,15 +455,6 @@ func resourceRelease() *schema.Resource {
 							Description: "Set of extra values, added to the chart. The sensitive data is cloaked. JSON encoded.",
 						},
 					},
-				},
-			},
-			"upgrade": {
-				Type:        schema.TypeMap,
-				Optional:    true,
-				Default:     defaultAttributes["upgrade"],
-				Description: "Configure 'upgrade' strategy for installing charts.  WARNING: this may not be suitable for production use -- see the provider documentation",
-				Elem: &schema.Schema{
-					Type: schema.TypeBool,
 				},
 			},
 		},

@@ -1014,7 +1014,7 @@ func testAccHelmReleaseConfigWithUpgradeStrategy(resource, ns, name, version str
   			chart       = "test-chart"
 			version     = %q
 
-			upgrade = {
+			upgrade {
 				enable = %t
 				install = %t
 			}
@@ -1050,7 +1050,7 @@ func testAccHelmReleaseConfigWithUpgradeStrategyWarmstart(ns, name string) strin
   			chart       = "./test-chart-1.2.3.tgz"
 			version     = "0.1.0"
 
-			upgrade = {
+			upgrade {
 				enable = true
 				install = false
 			}

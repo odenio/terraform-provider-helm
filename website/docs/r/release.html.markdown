@@ -212,7 +212,7 @@ The following arguments are supported:
 * `pass_credentials` - (Optional) Pass credentials to all domains. Defaults to `false`.
 * `lint` - (Optional) Run the helm chart linter during the plan. Defaults to `false`.
 * `create_namespace` - (Optional) Create the namespace if it does not yet exist. Defaults to `false`.
-* `upgrade` - (Optional) Enable "upgrade mode" -- the structure of this map is documented below.
+* `upgrade` - (Optional) Enable "upgrade mode" -- the structure of this block is documented below.
 
 The `set`, `set_list`, and `set_sensitive` blocks support:
 
@@ -293,7 +293,7 @@ having to manually import the release into terraform state each time. But the me
 different from the defaults and you can easily produce unexpected or undesirable results if you are not careful:
 using this approach in production is not necessarily recommended!
 
-If upgrade mode is enabled by setting `enable` to `true` in the `upgrade` map, the provider will first check to see
+If upgrade mode is enabled by setting `enable` to `true` in the `upgrade` block, the provider will first check to see
 if a release with the given name already exists.  If that release exists, it will attempt to upgrade the release to
 the state defined in the resource, using the same strategy as the [helm upgrade](https://helm.sh/docs/helm/helm_upgrade)
 command.  In this case, the `generate_name`, `name_template` and `replace` attributes of the resource (if set) are
