@@ -57,10 +57,6 @@ var defaultAttributes = map[string]interface{}{
 	"create_namespace":           false,
 	"lint":                       false,
 	"pass_credentials":           false,
-	"upgrade": map[string]bool{
-		"enable":  false,
-		"install": false,
-	},
 }
 
 func resourceRelease() *schema.Resource {
@@ -394,19 +390,17 @@ func resourceRelease() *schema.Resource {
 				Type:        schema.TypeList,
 				Optional:    true,
 				MaxItems:    1,
-				Default:     defaultAttributes["upgrade"],
 				Description: "Configure 'upgrade' strategy for installing charts.  WARNING: this may not be suitable for production use -- see the provider documentation,",
 				Elem: &schema.Resource{
 					Schema: map[string]*schema.Schema{
 						"enable": {
 							Type:        schema.TypeBool,
 							Required:    true,
-							Default:     false,
 							Description: "If true, the provider will install the release at the specified version even if a release not controlled by the provider is present: this is equivalent to using the 'helm upgrade' CLI tool rather than 'helm install'.",
 						},
 						"install": {
 							Type:        schema.TypeBool,
-							Required:    false,
+							Optional:    true,
 							Default:     false,
 							Description: "When using the 'upgrade' strategy, install the release if it is not already present. This is equivalent to using the 'helm upgrade' CLI tool with the '--install' flag.",
 						},
@@ -619,20 +613,24 @@ func resourceReleaseCreate(ctx context.Context, d *schema.ResourceData, meta int
 	var rel *release.Release
 	var installIfNoReleaseToUpgrade bool
 	var releaseAlreadyExists bool
+	var enableUpgradeStrategy bool
 
 	releaseName := d.Get("name").(string)
-	upgradeStrategy := d.Get("upgrade").(map[string]interface{})
-	enableUpgradeStrategy, ok := upgradeStrategy["enable"].(bool)
-
-	if ok && enableUpgradeStrategy {
-		installIfNoReleaseToUpgrade, _ = upgradeStrategy["install"].(bool)
+	upgradeBlock := d.Get("upgrade").([]interface{})
+	if len(upgradeBlock) > 0 {
+		upgradeStrategyMap := upgradeBlock[0].(map[string]interface{})
+		var ok bool
+		enableUpgradeStrategy, ok = upgradeStrategyMap["enable"].(bool)
+		if ok && enableUpgradeStrategy {
+			installIfNoReleaseToUpgrade, _ = upgradeStrategyMap["install"].(bool)
+		}
 	}
 
 	if enableUpgradeStrategy {
 		// Check to see if there is already a release installed.
 		histClient := action.NewHistory(actionConfig)
 		histClient.Max = 1
-		if _, err := histClient.Run(releaseName); err == driver.ErrReleaseNotFound {
+		if _, err := histClient.Run(releaseName); errors.Is(err, driver.ErrReleaseNotFound) {
 			debug("%s Chart %s is not yet installed", logID, chartName)
 		} else if err != nil {
 			return diag.FromErr(err)
